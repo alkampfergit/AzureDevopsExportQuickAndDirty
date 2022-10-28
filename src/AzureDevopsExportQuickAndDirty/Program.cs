@@ -1,5 +1,7 @@
 ﻿using CommandLine;
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
+using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
+using Microsoft.VisualStudio.Services.Common;
+using Microsoft.VisualStudio.Services.WebApi;
 using OfficeOpenXml;
 using Serilog;
 using Serilog.Exceptions;
@@ -7,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace AzureDevopsExportQuickAndDirty
 {
@@ -14,7 +17,7 @@ namespace AzureDevopsExportQuickAndDirty
     {
         private static Options _options;
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             ConfigureSerilog();
 
@@ -24,99 +27,144 @@ namespace AzureDevopsExportQuickAndDirty
 
             ConnectionManager conn = new ConnectionManager(_options.ServiceAddress, _options.AccessToken);
 
-            var query = $@"Select * from WorkItems 
-            where 
-                [System.WorkItemType] = 'Product Backlog Item' AND
-                [System.TeamProject] = '{_options.TeamProject}'
-";
-
-            var queryResult = conn.WorkItemStore.Query(query);
-
             var fileName = Path.GetTempFileName() + ".xlsx";
             FileInfo newFile = new FileInfo(fileName);
 
-            var sprints = _options.Sprints
-                .Split(',')
-                .Select(s => "\\sprint " + s)
-                .ToList();
-
-            var workItems = queryResult
-                .OfType<WorkItem>()
-                .Where(w => ShouldPrintSprint(sprints, w))
-                .ToList();
-
-            using (var p = new ExcelPackage(newFile))
+            using (var excel = new ExcelPackage(newFile))
             {
-                var wiGrouped = workItems.GroupBy(w => w.IterationPath);
+                Log.Information("Created temporary excel file {file}", newFile);
 
-                foreach (var group in wiGrouped)
-                {
-                    var sprintName = group.Key.Split('\\', '/').Last();
-                    //A workbook must have at least on cell, so lets add one... 
-                    var ws = p.Workbook.Worksheets.Add(sprintName);
+                await ExtractAllWorkItemsInfo(conn, excel);
 
-                    ws.Cells["A1"].Value = "Id";
-                    ws.Cells["B1"].Value = "Titolo";
-                    ws.Cells["C1"].Value = "Sprint";
-                    ws.Cells["D1"].Value = "Stato";
-                    ws.Cells["E1"].Value = "Status Change Date";
-                    ws.Cells["F1"].Value = "Status Change User";
-                    Int32 row = 2;
-
-                    foreach (WorkItem workItem in group)
-                    {
-                        Log.Information("Loaded work item {id}.", workItem.Id);
-
-                        ws.Cells[$"A{row}"].Value = workItem.Id;
-                        ws.Cells[$"B{row}"].Value = workItem.Title;
-                        ws.Cells[$"C{row}"].Value = workItem.IterationPath.Split('/', '\\').Last();
-                        ws.Cells[$"D{row}"].Value = workItem.State;
-
-                        var stateRevision = workItem.Revisions
-                            .OfType<Revision>()
-                            .OrderByDescending(r => r.Fields["System.ChangedDate"].Value as DateTime?)
-                            .Where(r => r.Fields["System.State"].OriginalValue != r.Fields["System.State"].Value)
-                            .FirstOrDefault();
-
-                        if (stateRevision != null)
-                        {
-                            var changeDate = (DateTime)stateRevision.Fields["System.ChangedDate"].Value;
-                            ws.Cells[$"E{row}"].Value = changeDate.ToString("dd/MM/yyyy");
-                            ws.Cells[$"F{row}"].Value = stateRevision.Fields["System.ChangedBy"].Value;
-                        }
-                       
-                        //Save the new workbook. We haven't specified the filename so use the Save as method.
-                        Log.Information("Exported Work Item {id}", workItem.Id);
-                        row++;
-                    }
-                }
-                p.Save();
+                excel.Save();
             }
 
             System.Diagnostics.Process.Start(newFile.FullName);
             Console.ReadKey();
         }
 
-        private static bool ShouldPrintSprint(List<String> sprints, WorkItem w)
-        {
-            foreach (var sprint in sprints)
-            {
-                if (w.IterationPath.IndexOf(sprint, StringComparison.OrdinalIgnoreCase) > -1)
-                    return true;
-            }
-
-            return false;
-        }
-
         private static void HandleParseError(IEnumerable<Error> errs)
         {
+            foreach (var parseError in errs)
+            {
+                Log.Error("Error parsing arguments: {error}", parseError.Tag);
+            }
+        }
+
+        private static async Task ExtractAllWorkItemsInfo(ConnectionManager conn, ExcelPackage excel)
+        {
+            Log.Information("About to query all work items");
+            var query = $@"Select
+               [State],[Title]
+            from 
+                WorkItems 
+            where 
+                [System.TeamProject] = '{_options.TeamProject}'";
+
+            var wiql = new Wiql() { Query = query };
+            //execute the query to get the list of work items in teh results
+            WorkItemQueryResult workItemQueryResult = await conn.WorkItemTrackingHttpClient.QueryByWiqlAsync(wiql);
+
+            //now we need to export all data in excel file.
+            var ws = excel.Workbook.Worksheets.Add("workitem");
+            ws.Cells["A1"].Value = "Id";
+            ws.Cells["B1"].Value = "Type";
+            ws.Cells["C1"].Value = "State";
+            ws.Cells["D1"].Value = "CreationDate";
+            ws.Cells["E1"].Value = "CreatedBy";
+            ws.Cells["F1"].Value = "AssignedTo";
+            ws.Cells["G1"].Value = "RelatedWorkItems";
+            ws.Cells["H1"].Value = "Code";
+            ws.Cells["I1"].Value = "PullRequest";
+            Int32 row = 2;
+
+            //now get the result.             
+            if (workItemQueryResult.WorkItems.Any())
+            {
+                //need to get the list of our work item id's paginated and get work item in blocks
+                var count = workItemQueryResult.WorkItems.Count();
+                var current = 0;
+                var pageSize = 200;
+
+                while (current < count)
+                {
+                    List<WorkItem> workItems = await RetrievePageOfWorkItem(conn, workItemQueryResult, current, pageSize);
+
+                    row = DumpPageOfWorkItems(ws, row, workItems);
+
+                    current += pageSize;
+                }
+            }
+        }
+
+        private static async Task<List<WorkItem>> RetrievePageOfWorkItem(ConnectionManager conn, WorkItemQueryResult workItemQueryResult, int current, int pageSize)
+        {
+            List<int> list = workItemQueryResult
+                .WorkItems
+                .Select(wi => wi.Id)
+                .Skip(current)
+                .Take(pageSize)
+                .ToList();
+
+            ////build a list of the fields we want to see
+            //string[] fields = new string[]
+            //{
+            //            "System.CreatedBy",
+            //            "System.CreatedDate",
+            //            "System.State",
+            //            "System.CreatedBy",
+            //            "System.AssignedTo",
+            //            "System.WorkItemType"
+            //};
+
+            ////get work items for the id's found in query
+            //var workItems = await conn.WorkItemTrackingHttpClient.GetWorkItemsAsync(
+            //    list,
+            //    fields,
+            //    workItemQueryResult.AsOf);
+
+            // var workItemsRelations = await conn.WorkItemTrackingHttpClient.GetWorkItemsAsync(
+            //    list,
+            //    fields: new[] { "System.Id"},
+            //    expand: WorkItemExpand.Relations);
+
+            var workItems = await conn.WorkItemTrackingHttpClient.GetWorkItemsAsync(
+                list,
+                expand: WorkItemExpand.Relations);
+            Log.Information("Query Results: record from {from} to {to} retrieved", current, current + pageSize);
+            return workItems;
+        }
+
+        private static int DumpPageOfWorkItems(ExcelWorksheet ws, int row, List<WorkItem> workItems)
+        {
+            foreach (WorkItem workItem in workItems)
+            {
+                Log.Debug("Loaded work item {id}.", workItem.Id);
+
+                ws.Cells[$"A{row}"].Value = workItem.Id;
+                ws.Cells[$"B{row}"].Value = workItem.Fields["System.WorkItemType"];
+                ws.Cells[$"C{row}"].Value = workItem.Fields["System.State"];
+                ws.Cells[$"D{row}"].Value = ((DateTime)workItem.Fields["System.CreatedDate"]).ToString("yyyy/MM/dd");
+                ws.Cells[$"E{row}"].Value = workItem.Fields.GetFieldValue<IdentityRef>("System.CreatedBy")?.DisplayName ?? "";
+                ws.Cells[$"F{row}"].Value = workItem.Fields.GetFieldValue<IdentityRef>("System.AssignedTo")?.DisplayName ?? "";
+
+                if (workItem.Relations != null)
+                {
+                    ws.Cells[$"G{row}"].Value = workItem.Relations.Count(r => WorkItemHelper.IsLinkToWorkItem(r.Url));
+                    ws.Cells[$"H{row}"].Value = workItem.Relations.Count(r => WorkItemHelper.IsLinkToCode(r.Url));
+                    ws.Cells[$"I{row}"].Value = workItem.Relations.Count(r => WorkItemHelper.IsLinkToPullRequest(r.Url));
+                }
+                row++;
+            }
+
+            return row;
         }
 
         private static void ConfigureSerilog()
         {
             Log.Logger = new LoggerConfiguration()
                 .Enrich.WithExceptionDetails()
-                .MinimumLevel.Debug()
+                .MinimumLevel.Information()
                 .WriteTo.Console()
                 .WriteTo.File(
                     "logs\\logs.txt",
