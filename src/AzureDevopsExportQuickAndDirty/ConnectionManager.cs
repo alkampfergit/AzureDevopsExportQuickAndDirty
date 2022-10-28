@@ -1,7 +1,4 @@
-﻿using Microsoft.TeamFoundation.Client;
-using Microsoft.TeamFoundation.Server;
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
-using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
+﻿using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.VisualStudio.Services.Client;
 using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
@@ -39,11 +36,7 @@ namespace AzureDevopsExportQuickAndDirty
         {
             try
             {
-                _workItemStore = _tfsCollection.GetService<WorkItemStore>();
-                _commonStructureService = _tfsCollection.GetService<ICommonStructureService>();
-                _commonStructureService4 = _tfsCollection.GetService<ICommonStructureService4>();
-
-                _workItemTrackingHttpClient = _vssConnection.GetClient<WorkItemTrackingHttpClient>();
+                 _workItemTrackingHttpClient = _vssConnection.GetClient<WorkItemTrackingHttpClient>();
             }
             catch (Exception ex)
             {
@@ -58,18 +51,6 @@ namespace AzureDevopsExportQuickAndDirty
             }
         }
 
-        /// <summary>
-        /// Create an instance where the TFS Project collection was already passed by the 
-        /// calleer. 
-        /// </summary>
-        /// <param name="accessToken"></param>
-        public ConnectionManager(TfsTeamProjectCollection tfsTeamProjectCollection) : this()
-        {
-            _tfsCollection = tfsTeamProjectCollection;
-            tfsTeamProjectCollection.Authenticate();
-            InitBaseServices();
-        }
-
         public async Task ConnectAsync(string accountUri)
         {
             Uri uri = new Uri(accountUri);
@@ -82,21 +63,11 @@ namespace AzureDevopsExportQuickAndDirty
             _vssConnection = new VssConnection(uri, creds);
             await _vssConnection.ConnectAsync().ConfigureAwait(false);
 
-            _tfsCollection = new TfsTeamProjectCollection(uri, creds);
-            _tfsCollection.EnsureAuthenticated();
             InitBaseServices();
         }
 
-        private TfsTeamProjectCollection _tfsCollection;
         private VssConnection _vssConnection;
-        private WorkItemStore _workItemStore;
-        private ICommonStructureService _commonStructureService;
-        private ICommonStructureService4 _commonStructureService4;
         private WorkItemTrackingHttpClient _workItemTrackingHttpClient;
-
-        public WorkItemStore WorkItemStore => _workItemStore;
-        public ICommonStructureService CommonStructureService => _commonStructureService;
-        public ICommonStructureService4 CommonStructureService4 => _commonStructureService4;
 
         public WorkItemTrackingHttpClient WorkItemTrackingHttpClient => _workItemTrackingHttpClient;
 
@@ -116,45 +87,15 @@ namespace AzureDevopsExportQuickAndDirty
             }
             creds.Storage = new VssClientCredentialStorage();
 
-            // Connect to VSTS
-            _tfsCollection = new TfsTeamProjectCollection(new Uri(accountUri), creds);
-            _tfsCollection.Authenticate();
-
             _vssConnection = new VssConnection(new Uri(accountUri), creds);
             _vssConnection.ConnectAsync().Wait();
             return true;
         }
 
-        /// <summary>
-        /// Returns a list of all team projects names.
-        /// </summary>
-        /// <returns></returns>
-        public IEnumerable<String> GetTeamProjectsNames()
-        {
-            return _workItemStore.Projects.OfType<Project>().Select(_ => _.Name);
-        }
-
-        public Project GetTeamProject(String name)
-        {
-            return _workItemStore.Projects
-                .OfType<Project>()
-                .Where(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-                .FirstOrDefault();
-        }
 
         public T GetClient<T>() where T : VssHttpClientBase
         {
             return _vssConnection.GetClient<T>();
-        }
-
-        public object GetAuthenticatedUser()
-        {
-            return _tfsCollection.AuthorizedIdentity.DisplayName;
-        }
-
-        public ICredentials GetCredentials()
-        {
-            return _tfsCollection.Credentials;
         }
     }
 }

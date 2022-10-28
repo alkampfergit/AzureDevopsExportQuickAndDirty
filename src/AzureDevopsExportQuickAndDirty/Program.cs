@@ -1,6 +1,5 @@
 ﻿using CommandLine;
-using Microsoft.TeamFoundation.WorkItemTracking.Client;
-using Microsoft.VisualStudio.Services.Client;
+using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
 using OfficeOpenXml;
@@ -10,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace AzureDevopsExportQuickAndDirty
 {
@@ -17,7 +17,7 @@ namespace AzureDevopsExportQuickAndDirty
     {
         private static Options _options;
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             ConfigureSerilog();
 
@@ -34,7 +34,7 @@ namespace AzureDevopsExportQuickAndDirty
             {
                 Log.Information("Created temporary excel file {file}", newFile);
 
-                ExtractAllWorkItemsInfo(conn, excel);
+                await ExtractAllWorkItemsInfo(conn, excel);
 
                 excel.Save();
             }
@@ -43,24 +43,27 @@ namespace AzureDevopsExportQuickAndDirty
             Console.ReadKey();
         }
 
-        private static void ExtractAllWorkItemsInfo(ConnectionManager conn, ExcelPackage excel)
+        private static void HandleParseError(IEnumerable<Error> errs)
+        {
+            foreach (var parseError in errs)
+            {
+                Log.Error("Error parsing arguments: {error}", parseError.Tag);
+            }
+        }
+
+        private static async Task ExtractAllWorkItemsInfo(ConnectionManager conn, ExcelPackage excel)
         {
             Log.Information("About to query all work items");
             var query = $@"Select
-                System.CreatedBy,
-                System.CreatedDate,
-                System.State,
-                System.CreatedBy,
-                System.AssignedTo
+               [State],[Title]
             from 
                 WorkItems 
             where 
                 [System.TeamProject] = '{_options.TeamProject}'";
 
-            var queryResult = conn.WorkItemStore.Query(query);
-            var allWorkItems = queryResult.OfType<WorkItem>().ToList();
-
-            Log.Information("Loaded In memory {count} work items", allWorkItems.Count);
+            var wiql = new Wiql() { Query = query };
+            //execute the query to get the list of work items in teh results
+            WorkItemQueryResult workItemQueryResult = await conn.WorkItemTrackingHttpClient.QueryByWiqlAsync(wiql);
 
             //now we need to export all data in excel file.
             var ws = excel.Workbook.Worksheets.Add("workitem");
@@ -74,45 +77,84 @@ namespace AzureDevopsExportQuickAndDirty
             ws.Cells["H1"].Value = "Code";
             ws.Cells["I1"].Value = "PullRequest";
             Int32 row = 2;
-            foreach (WorkItem workItem in allWorkItems.Take(1000))
+
+            //now get the result.             
+            if (workItemQueryResult.WorkItems.Any())
+            {
+                //need to get the list of our work item id's paginated and get work item in blocks
+                var count = workItemQueryResult.WorkItems.Count();
+                var current = 0;
+                var pageSize = 100;
+
+                while (current < count)
+                {
+                    List<WorkItem> workItems = await RetrievePageOfWorkItem(conn, workItemQueryResult, current, pageSize);
+
+                    row = DumpPageOfWorkItems(ws, row, workItems);
+
+                    current += pageSize;
+                }
+            }
+        }
+
+        private static async Task<List<WorkItem>> RetrievePageOfWorkItem(ConnectionManager conn, WorkItemQueryResult workItemQueryResult, int current, int pageSize)
+        {
+            List<int> list = workItemQueryResult
+                                    .WorkItems
+                                    .Select(wi => wi.Id)
+                                    .Skip(current)
+                                    .Take(pageSize)
+                                    .ToList();
+
+            //build a list of the fields we want to see
+            string[] fields = new string[]
+            {
+                        "System.CreatedBy",
+                        "System.CreatedDate",
+                        "System.State",
+                        "System.CreatedBy",
+                        "System.AssignedTo",
+                        "System.WorkItemType"
+            };
+
+            //get work items for the id's found in query
+            var workItems = await conn.WorkItemTrackingHttpClient.GetWorkItemsAsync(
+                list,
+                fields,
+                workItemQueryResult.AsOf);
+
+            Log.Information("Query Results: record from {from} to {to} retrieved", current, current + pageSize);
+            return workItems;
+        }
+
+        private static int DumpPageOfWorkItems(ExcelWorksheet ws, int row, List<WorkItem> workItems)
+        {
+            foreach (WorkItem workItem in workItems)
             {
                 Log.Debug("Loaded work item {id}.", workItem.Id);
 
                 ws.Cells[$"A{row}"].Value = workItem.Id;
-                ws.Cells[$"B{row}"].Value = workItem.Type.Name;
-                ws.Cells[$"C{row}"].Value = workItem.State;
-                ws.Cells[$"D{row}"].Value = workItem.CreatedDate.ToString("yyyy/MM/dd");
-                ws.Cells[$"E{row}"].Value = workItem.CreatedBy;
-                ws.Cells[$"F{row}"].Value = workItem.Fields["system.assignedTo"].Value;
+                ws.Cells[$"B{row}"].Value = workItem.Fields["System.WorkItemType"];
+                ws.Cells[$"C{row}"].Value = workItem.Fields["System.State"];
+                ws.Cells[$"D{row}"].Value = ((DateTime)workItem.Fields["System.CreatedDate"]).ToString("yyyy/MM/dd");
+                ws.Cells[$"E{row}"].Value = workItem.Fields.GetFieldValue<IdentityRef>("System.CreatedBy")?.DisplayName ?? "";
+                ws.Cells[$"F{row}"].Value = workItem.Fields.GetFieldValue<IdentityRef>("System.AssignedTo")?.DisplayName ?? "";
 
-                ws.Cells[$"G{row}"].Value = workItem.Links.OfType<RelatedLink>().Count();
-                ws.Cells[$"H{row}"].Value = workItem.Links.OfType<ExternalLink>().Where(el => el.ArtifactLinkType.Name.Contains("Commit")).Count();
-                ws.Cells[$"I{row}"].Value = workItem.Links.OfType<ExternalLink>().Where(el => el.ArtifactLinkType.Name.Contains("Pull Request")).Count();
+                //ws.Cells[$"G{row}"].Value = workItem.Links.OfType<RelatedLink>().Count();
+                //ws.Cells[$"H{row}"].Value = workItem.Links.OfType<ExternalLink>().Where(el => el.ArtifactLinkType.Name.Contains("Commit")).Count();
+                //ws.Cells[$"I{row}"].Value = workItem.Links.OfType<ExternalLink>().Where(el => el.ArtifactLinkType.Name.Contains("Pull Request")).Count();
 
                 row++;
             }
-        }
 
-        private static bool ShouldPrintSprint(List<String> sprints, WorkItem w)
-        {
-            foreach (var sprint in sprints)
-            {
-                if (w.IterationPath.IndexOf(sprint, StringComparison.OrdinalIgnoreCase) > -1)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static void HandleParseError(IEnumerable<Error> errs)
-        {
+            return row;
         }
 
         private static void ConfigureSerilog()
         {
             Log.Logger = new LoggerConfiguration()
                 .Enrich.WithExceptionDetails()
-                .MinimumLevel.Debug()
+                .MinimumLevel.Information()
                 .WriteTo.Console()
                 .WriteTo.File(
                     "logs\\logs.txt",
