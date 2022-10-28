@@ -103,9 +103,17 @@ namespace AzureDevopsExportQuickAndDirty
         private Boolean ConnectToTfs(String accountUri, String accessToken)
         {
             //login for VSTS
-            VssCredentials creds = new VssBasicCredential(
-                String.Empty,
-                accessToken);
+            VssCredentials creds;
+            if (String.IsNullOrEmpty(accessToken))
+            {
+                creds = new VssClientCredentials();
+            }
+            else
+            {
+                creds = new VssBasicCredential(
+                   String.Empty,
+                   accessToken);
+            }
             creds.Storage = new VssClientCredentialStorage();
 
             // Connect to VSTS

@@ -1,5 +1,8 @@
 ﻿using CommandLine;
 using Microsoft.TeamFoundation.WorkItemTracking.Client;
+using Microsoft.VisualStudio.Services.Client;
+using Microsoft.VisualStudio.Services.Common;
+using Microsoft.VisualStudio.Services.WebApi;
 using OfficeOpenXml;
 using Serilog;
 using Serilog.Exceptions;
@@ -24,77 +27,68 @@ namespace AzureDevopsExportQuickAndDirty
 
             ConnectionManager conn = new ConnectionManager(_options.ServiceAddress, _options.AccessToken);
 
-            var query = $@"Select * from WorkItems 
-            where 
-                [System.WorkItemType] = 'Product Backlog Item' AND
-                [System.TeamProject] = '{_options.TeamProject}'
-";
-
-            var queryResult = conn.WorkItemStore.Query(query);
-
             var fileName = Path.GetTempFileName() + ".xlsx";
             FileInfo newFile = new FileInfo(fileName);
 
-            var sprints = _options.Sprints
-                .Split(',')
-                .Select(s => "\\sprint " + s)
-                .ToList();
-
-            var workItems = queryResult
-                .OfType<WorkItem>()
-                .Where(w => ShouldPrintSprint(sprints, w))
-                .ToList();
-
-            using (var p = new ExcelPackage(newFile))
+            using (var excel = new ExcelPackage(newFile))
             {
-                var wiGrouped = workItems.GroupBy(w => w.IterationPath);
+                Log.Information("Created temporary excel file {file}", newFile);
 
-                foreach (var group in wiGrouped)
-                {
-                    var sprintName = group.Key.Split('\\', '/').Last();
-                    //A workbook must have at least on cell, so lets add one... 
-                    var ws = p.Workbook.Worksheets.Add(sprintName);
+                ExtractAllWorkItemsInfo(conn, excel);
 
-                    ws.Cells["A1"].Value = "Id";
-                    ws.Cells["B1"].Value = "Titolo";
-                    ws.Cells["C1"].Value = "Sprint";
-                    ws.Cells["D1"].Value = "Stato";
-                    ws.Cells["E1"].Value = "Status Change Date";
-                    ws.Cells["F1"].Value = "Status Change User";
-                    Int32 row = 2;
-
-                    foreach (WorkItem workItem in group)
-                    {
-                        Log.Information("Loaded work item {id}.", workItem.Id);
-
-                        ws.Cells[$"A{row}"].Value = workItem.Id;
-                        ws.Cells[$"B{row}"].Value = workItem.Title;
-                        ws.Cells[$"C{row}"].Value = workItem.IterationPath.Split('/', '\\').Last();
-                        ws.Cells[$"D{row}"].Value = workItem.State;
-
-                        var stateRevision = workItem.Revisions
-                            .OfType<Revision>()
-                            .OrderByDescending(r => r.Fields["System.ChangedDate"].Value as DateTime?)
-                            .Where(r => r.Fields["System.State"].OriginalValue != r.Fields["System.State"].Value)
-                            .FirstOrDefault();
-
-                        if (stateRevision != null)
-                        {
-                            var changeDate = (DateTime)stateRevision.Fields["System.ChangedDate"].Value;
-                            ws.Cells[$"E{row}"].Value = changeDate.ToString("dd/MM/yyyy");
-                            ws.Cells[$"F{row}"].Value = stateRevision.Fields["System.ChangedBy"].Value;
-                        }
-                       
-                        //Save the new workbook. We haven't specified the filename so use the Save as method.
-                        Log.Information("Exported Work Item {id}", workItem.Id);
-                        row++;
-                    }
-                }
-                p.Save();
+                excel.Save();
             }
 
             System.Diagnostics.Process.Start(newFile.FullName);
             Console.ReadKey();
+        }
+
+        private static void ExtractAllWorkItemsInfo(ConnectionManager conn, ExcelPackage excel)
+        {
+            Log.Information("About to query all work items");
+            var query = $@"Select
+                System.CreatedBy,
+                System.CreatedDate,
+                System.State,
+                System.CreatedBy,
+                System.AssignedTo
+            from 
+                WorkItems 
+            where 
+                [System.TeamProject] = '{_options.TeamProject}'";
+
+            var queryResult = conn.WorkItemStore.Query(query);
+            var allWorkItems = queryResult.OfType<WorkItem>().ToList();
+
+            foreach (var item in allWorkItems)
+            {
+                Console.WriteLine(item.Fields["System.State"]);
+            }
+
+            Log.Information("Loaded In memory {count} work items", allWorkItems.Count);
+
+            //now we need to export all data in excel file.
+            var ws = excel.Workbook.Worksheets.Add("workitem");
+            ws.Cells["A1"].Value = "Id";
+            ws.Cells["B1"].Value = "Type";
+            ws.Cells["C1"].Value = "State";
+            ws.Cells["D1"].Value = "CreationDate";
+            ws.Cells["E1"].Value = "CreatedBy";
+            ws.Cells["F1"].Value = "AssignedTo";
+            Int32 row = 2;
+            foreach (WorkItem workItem in allWorkItems)
+            {
+                Log.Debug("Loaded work item {id}.", workItem.Id);
+
+                ws.Cells[$"A{row}"].Value = workItem.Id;
+                ws.Cells[$"B{row}"].Value = workItem.Type.Name;
+                ws.Cells[$"C{row}"].Value = workItem.State;
+                ws.Cells[$"D{row}"].Value = workItem.CreatedDate.ToString("yyyy/MM/dd");
+                ws.Cells[$"E{row}"].Value = workItem.CreatedBy;
+                ws.Cells[$"F{row}"].Value = workItem.Fields["system.assignedTo"].Value;
+
+                row++;
+            }
         }
 
         private static bool ShouldPrintSprint(List<String> sprints, WorkItem w)

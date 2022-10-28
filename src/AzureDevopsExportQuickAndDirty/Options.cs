@@ -13,7 +13,7 @@ namespace AzureDevopsExportQuickAndDirty
 
         [Option(
              "token",
-             Required = true,
+             Required = false,
              HelpText = "Access token")]
         public String AccessToken { get; set; }
 
@@ -23,10 +23,10 @@ namespace AzureDevopsExportQuickAndDirty
             HelpText = "Name of the teamproject")]
         public String TeamProject { get; set; }
 
-        [Option(
-            "sprints",
-            Required = false,
-            HelpText = "Sprints comma separated")]
-        public String Sprints { get; set; }
+        //[Option(
+        //    "sprints",
+        //    Required = false,
+        //    HelpText = "Sprints comma separated")]
+        //public String Sprints { get; set; } = String.Empty;
     }
 }
