@@ -84,7 +84,7 @@ namespace AzureDevopsExportQuickAndDirty
                 //need to get the list of our work item id's paginated and get work item in blocks
                 var count = workItemQueryResult.WorkItems.Count();
                 var current = 0;
-                var pageSize = 100;
+                var pageSize = 200;
 
                 while (current < count)
                 {
@@ -100,29 +100,37 @@ namespace AzureDevopsExportQuickAndDirty
         private static async Task<List<WorkItem>> RetrievePageOfWorkItem(ConnectionManager conn, WorkItemQueryResult workItemQueryResult, int current, int pageSize)
         {
             List<int> list = workItemQueryResult
-                                    .WorkItems
-                                    .Select(wi => wi.Id)
-                                    .Skip(current)
-                                    .Take(pageSize)
-                                    .ToList();
+                .WorkItems
+                .Select(wi => wi.Id)
+                .Skip(current)
+                .Take(pageSize)
+                .ToList();
 
-            //build a list of the fields we want to see
-            string[] fields = new string[]
-            {
-                        "System.CreatedBy",
-                        "System.CreatedDate",
-                        "System.State",
-                        "System.CreatedBy",
-                        "System.AssignedTo",
-                        "System.WorkItemType"
-            };
+            ////build a list of the fields we want to see
+            //string[] fields = new string[]
+            //{
+            //            "System.CreatedBy",
+            //            "System.CreatedDate",
+            //            "System.State",
+            //            "System.CreatedBy",
+            //            "System.AssignedTo",
+            //            "System.WorkItemType"
+            //};
 
-            //get work items for the id's found in query
+            ////get work items for the id's found in query
+            //var workItems = await conn.WorkItemTrackingHttpClient.GetWorkItemsAsync(
+            //    list,
+            //    fields,
+            //    workItemQueryResult.AsOf);
+
+            // var workItemsRelations = await conn.WorkItemTrackingHttpClient.GetWorkItemsAsync(
+            //    list,
+            //    fields: new[] { "System.Id"},
+            //    expand: WorkItemExpand.Relations);
+
             var workItems = await conn.WorkItemTrackingHttpClient.GetWorkItemsAsync(
                 list,
-                fields,
-                workItemQueryResult.AsOf);
-
+                expand: WorkItemExpand.Relations);
             Log.Information("Query Results: record from {from} to {to} retrieved", current, current + pageSize);
             return workItems;
         }
@@ -140,10 +148,12 @@ namespace AzureDevopsExportQuickAndDirty
                 ws.Cells[$"E{row}"].Value = workItem.Fields.GetFieldValue<IdentityRef>("System.CreatedBy")?.DisplayName ?? "";
                 ws.Cells[$"F{row}"].Value = workItem.Fields.GetFieldValue<IdentityRef>("System.AssignedTo")?.DisplayName ?? "";
 
-                //ws.Cells[$"G{row}"].Value = workItem.Links.OfType<RelatedLink>().Count();
-                //ws.Cells[$"H{row}"].Value = workItem.Links.OfType<ExternalLink>().Where(el => el.ArtifactLinkType.Name.Contains("Commit")).Count();
-                //ws.Cells[$"I{row}"].Value = workItem.Links.OfType<ExternalLink>().Where(el => el.ArtifactLinkType.Name.Contains("Pull Request")).Count();
-
+                if (workItem.Relations != null)
+                {
+                    ws.Cells[$"G{row}"].Value = workItem.Relations.Count(r => WorkItemHelper.IsLinkToWorkItem(r.Url));
+                    ws.Cells[$"H{row}"].Value = workItem.Relations.Count(r => WorkItemHelper.IsLinkToCode(r.Url));
+                    ws.Cells[$"I{row}"].Value = workItem.Relations.Count(r => WorkItemHelper.IsLinkToPullRequest(r.Url));
+                }
                 row++;
             }
 
