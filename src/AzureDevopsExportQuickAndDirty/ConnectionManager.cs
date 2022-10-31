@@ -1,4 +1,5 @@
 ﻿using AzureDevopsExportQuickAndDirty.Clients;
+using Microsoft.TeamFoundation.Build.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.VisualStudio.Services.Client;
 using Microsoft.VisualStudio.Services.Common;
@@ -37,6 +38,7 @@ namespace AzureDevopsExportQuickAndDirty
         {
             try
             {
+                _buildHttpClient = _vssConnection.GetClient<BuildHttpClient>(); 
                  _workItemTrackingHttpClient = _vssConnection.GetClient<WorkItemTrackingHttpClient>();
                  _pipelineHttpClient = _vssConnection.GetClient<PipelineHttpClient>();
             }
@@ -72,6 +74,9 @@ namespace AzureDevopsExportQuickAndDirty
 
         private WorkItemTrackingHttpClient _workItemTrackingHttpClient;
         public WorkItemTrackingHttpClient WorkItemTrackingHttpClient => _workItemTrackingHttpClient; 
+
+        private BuildHttpClient _buildHttpClient;
+        public BuildHttpClient BuildHttpClient => _buildHttpClient; 
         
         private PipelineHttpClient _pipelineHttpClient;
         public PipelineHttpClient PipelineHttpClient => _pipelineHttpClient;
