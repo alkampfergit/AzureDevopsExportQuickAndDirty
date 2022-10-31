@@ -1,4 +1,5 @@
-﻿using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
+﻿using AzureDevopsExportQuickAndDirty.Clients;
+using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.VisualStudio.Services.Client;
 using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
@@ -28,7 +29,7 @@ namespace AzureDevopsExportQuickAndDirty
         /// <param name="accessToken"></param>
         public ConnectionManager(String accountUri, String accessToken) : this()
         {
-            ConnectToTfs(accountUri, accessToken);
+            connectoToAccount(accountUri, accessToken);
             InitBaseServices();
         }
 
@@ -37,6 +38,7 @@ namespace AzureDevopsExportQuickAndDirty
             try
             {
                  _workItemTrackingHttpClient = _vssConnection.GetClient<WorkItemTrackingHttpClient>();
+                 _pipelineHttpClient = _vssConnection.GetClient<PipelineHttpClient>();
             }
             catch (Exception ex)
             {
@@ -67,11 +69,14 @@ namespace AzureDevopsExportQuickAndDirty
         }
 
         private VssConnection _vssConnection;
+
         private WorkItemTrackingHttpClient _workItemTrackingHttpClient;
+        public WorkItemTrackingHttpClient WorkItemTrackingHttpClient => _workItemTrackingHttpClient; 
+        
+        private PipelineHttpClient _pipelineHttpClient;
+        public PipelineHttpClient PipelineHttpClient => _pipelineHttpClient;
 
-        public WorkItemTrackingHttpClient WorkItemTrackingHttpClient => _workItemTrackingHttpClient;
-
-        private Boolean ConnectToTfs(String accountUri, String accessToken)
+        private Boolean connectoToAccount(String accountUri, String accessToken)
         {
             //login for VSTS
             VssCredentials creds;

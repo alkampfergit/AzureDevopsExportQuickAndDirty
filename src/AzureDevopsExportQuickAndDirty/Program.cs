@@ -1,6 +1,5 @@
 ﻿using CommandLine;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
-using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
 using OfficeOpenXml;
 using Serilog;
@@ -34,7 +33,28 @@ namespace AzureDevopsExportQuickAndDirty
             {
                 Log.Information("Created temporary excel file {file}", newFile);
 
-                await ExtractAllWorkItemsInfo(conn, excel);
+                //await ExtractAllWorkItemsInfo(conn, excel);
+
+                //grab pipelines
+                var pipelines = await conn.PipelineHttpClient.ListAsync(_options.TeamProject);
+                Log.Information("Found {count} pipelines", pipelines.Count);
+
+                //now we need to export all data in excel file.
+                var ws = excel.Workbook.Worksheets.Add("Pipelines");
+                ws.Cells["A1"].Value = "Id";
+                ws.Cells["B1"].Value = "Name";
+                ws.Cells["C1"].Value = "Folder";
+                ws.Cells["D1"].Value = "Url";
+
+                int row = 2;
+                foreach (var pipeline in pipelines.Value)
+                {
+                    ws.Cells[$"A{row}"].Value = pipeline.Id;
+                    ws.Cells[$"B{row}"].Value = pipeline.Name;
+                    ws.Cells[$"C{row}"].Value = pipeline.Folder;
+                    ws.Cells[$"D{row}"].Value = pipeline.Url;
+                    row++;
+                }              
 
                 excel.Save();
             }
