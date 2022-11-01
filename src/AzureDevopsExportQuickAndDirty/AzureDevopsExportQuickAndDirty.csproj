@@ -89,4 +89,12 @@
   <ItemGroup>
     <Compile Remove="Models\PipelinesApiModels.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <None Remove="Templates\BaseTemplate.xlsx" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Templates\BaseTemplate.xlsx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

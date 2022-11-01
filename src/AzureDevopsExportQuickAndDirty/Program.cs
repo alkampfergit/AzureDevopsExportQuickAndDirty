@@ -1,4 +1,5 @@
-﻿using CommandLine;
+﻿using AzureDevopsExportQuickAndDirty.Support;
+using CommandLine;
 using Microsoft.TeamFoundation.Build.WebApi;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
@@ -11,7 +12,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Threading.Tasks;
 
 namespace AzureDevopsExportQuickAndDirty
@@ -30,35 +30,37 @@ namespace AzureDevopsExportQuickAndDirty
 
             ConnectionManager conn = new ConnectionManager(_options.ServiceAddress, _options.AccessToken);
 
-            var fileName = Path.GetTempFileName() + ".xlsx";
+            var fileName = Path.GetTempPath() + Guid.NewGuid().ToString() + ".xlsx";
+            var template = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Templates", "BaseTemplate.xlsx");
+            File.Copy(template, fileName);
             FileInfo newFile = new FileInfo(fileName);
 
             using (var excel = new ExcelPackage(newFile))
             {
                 Log.Information("Created temporary excel file {file}", newFile);
 
-                //await ExtractAllWorkItemsInfo(conn, excel);
+                await ExtractAllWorkItemsInfo(conn, excel);
 
-                //await ExtractPipelineInformations(conn, excel);
+                var pipelineInfo = await ExtractPipelineInformations(conn, excel);
 
-                await ExtractSourceCodeInformation(conn, excel);
+                await ExtractSourceCodeInformation(conn, excel, pipelineInfo);
 
                 excel.Save();
             }
 
-            System.Diagnostics.Process.Start(newFile.FullName);
-            Console.ReadKey();
+            Process.Start(newFile.FullName);
         }
 
-        private static async Task ExtractSourceCodeInformation(ConnectionManager conn, ExcelPackage excel)
+        private static async Task ExtractSourceCodeInformation(ConnectionManager conn, ExcelPackage excel, IReadOnlyCollection<PipelineInfo> pipelineInfo)
         {
-            var ws = excel.Workbook.Worksheets.Add("Source");
+            var ws = excel.Workbook.Worksheets.Single(w => w.Name == "Source");
             ws.Cells["A1"].Value = "Id";
             ws.Cells["B1"].Value = "Type";
             ws.Cells["C1"].Value = "Name";
             ws.Cells["D1"].Value = "Commit/changeset";
             ws.Cells["E1"].Value = "Branches";
             ws.Cells["F1"].Value = "Files in main branch";
+            ws.Cells["G1"].Value = "Pipelines";
 
             List<TfvcChangesetRef> allChangesets = new List<TfvcChangesetRef>(1000);
             List<TfvcChangesetRef> block;
@@ -92,6 +94,7 @@ namespace AzureDevopsExportQuickAndDirty
                 ws.Cells[$"A{row}"].Value = repo.Id;
                 ws.Cells[$"B{row}"].Value = "Git";
                 ws.Cells[$"C{row}"].Value = repo.Name;
+                ws.Cells[$"G{row}"].Value = pipelineInfo.Count(p => p.RepoId == repo.Id.ToString());
 
                 //retrieve commits
                 //var allCommits = new Dictionary<string, GitCommitRef>(1000);
@@ -153,7 +156,6 @@ namespace AzureDevopsExportQuickAndDirty
                 //error getting information
                 Log.Error(ex, "Error cloning repository {repo}", repo.RemoteUrl);
             }
-
         }
 
         private static void SafeDelete(string folderToDelete)
@@ -202,19 +204,22 @@ namespace AzureDevopsExportQuickAndDirty
             return output;
         }
 
-        private static async Task ExtractPipelineInformations(ConnectionManager conn, ExcelPackage excel)
+        private static async Task<IReadOnlyCollection<PipelineInfo>> ExtractPipelineInformations(ConnectionManager conn, ExcelPackage excel)
         {
             var order = DefinitionQueryOrder.LastModifiedDescending;
 
+            List<PipelineInfo> pipelineInfoList = new List<PipelineInfo>(100);
+
             //now we need to export all data in excel file.
-            var ws = excel.Workbook.Worksheets.Add("Pipelines");
+            var ws = excel.Workbook.Worksheets.Single(w => w.Name == "Pipelines");
             ws.Cells["A1"].Value = "Id";
             ws.Cells["B1"].Value = "Name";
             ws.Cells["C1"].Value = "Folder";
             ws.Cells["D1"].Value = "Url";
             ws.Cells["E1"].Value = "LatestSuccessfulBuild";
             ws.Cells["F1"].Value = "Repository";
-            ws.Cells["G1"].Value = "TotalRuns";
+            ws.Cells["G1"].Value = "Repository Id";
+            ws.Cells["H1"].Value = "TotalRuns";
 
             int row = 2;
 
@@ -245,7 +250,15 @@ namespace AzureDevopsExportQuickAndDirty
 
                     ws.Cells[$"E{row}"].Value = latestGoodResult?.FinishTime?.ToString("yyyy/MM/dd");
                     ws.Cells[$"F{row}"].Value = details.Repository.Name;
+                    ws.Cells[$"G{row}"].Value = details.Repository.Id;
 
+                    var stats = await conn.BuildHttpClient.GetBuildsAsync2(
+                        project: _options.TeamProject,
+                        definitions: new[] { details.Id });
+
+                    ws.Cells[$"H{row}"].Value = stats.Count;
+
+                    pipelineInfoList.Add(new PipelineInfo(pipeline, details.Repository?.Id, stats.Count));
                     row++;
                 }
 
@@ -261,6 +274,8 @@ namespace AzureDevopsExportQuickAndDirty
                     break; //finished cycle
                 }
             }
+
+            return pipelineInfoList;
         }
 
         private static void HandleParseError(IEnumerable<Error> errs)
@@ -286,7 +301,7 @@ namespace AzureDevopsExportQuickAndDirty
             WorkItemQueryResult workItemQueryResult = await conn.WorkItemTrackingHttpClient.QueryByWiqlAsync(wiql);
 
             //now we need to export all data in excel file.
-            var ws = excel.Workbook.Worksheets.Add("workitem");
+            var ws = excel.Workbook.Worksheets.Single(w => w.Name == "WorkItems");
             ws.Cells["A1"].Value = "Id";
             ws.Cells["B1"].Value = "Type";
             ws.Cells["C1"].Value = "State";
@@ -364,7 +379,7 @@ namespace AzureDevopsExportQuickAndDirty
                 ws.Cells[$"A{row}"].Value = workItem.Id;
                 ws.Cells[$"B{row}"].Value = workItem.Fields["System.WorkItemType"];
                 ws.Cells[$"C{row}"].Value = workItem.Fields["System.State"];
-                ws.Cells[$"D{row}"].Value = ((DateTime)workItem.Fields["System.CreatedDate"]).ToString("yyyy/MM/dd");
+                ws.Cells[$"D{row}"].Value = ((DateTime)workItem.Fields["System.CreatedDate"]);
                 ws.Cells[$"E{row}"].Value = workItem.Fields.GetFieldValue<IdentityRef>("System.CreatedBy")?.DisplayName ?? "";
                 ws.Cells[$"F{row}"].Value = workItem.Fields.GetFieldValue<IdentityRef>("System.AssignedTo")?.DisplayName ?? "";
 
