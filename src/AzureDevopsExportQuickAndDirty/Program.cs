@@ -1,4 +1,5 @@
 ﻿using CommandLine;
+using Microsoft.TeamFoundation.Build.WebApi;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Microsoft.VisualStudio.Services.WebApi;
@@ -7,6 +8,7 @@ using Serilog;
 using Serilog.Exceptions;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -39,32 +41,7 @@ namespace AzureDevopsExportQuickAndDirty
 
                 //await ExtractPipelineInformations(conn, excel);
 
-                var ws = excel.Workbook.Worksheets.Add("Source");
-                ws.Cells["A1"].Value = "Id";
-                ws.Cells["B1"].Value = "Type";
-                ws.Cells["C1"].Value = "Name";
-                ws.Cells["D1"].Value = "Commit/changeset";
-
-                List<TfvcChangesetRef> allChangesets = new List<TfvcChangesetRef>(1000);
-                List<TfvcChangesetRef> block;
-                var searchCriteria = new TfvcChangesetSearchCriteria();
-                searchCriteria.ItemPath = $"$/{_options.TeamProject}";
-                block = await conn.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
-                
-                while (block.Count > 0)
-                {
-                    Log.Information("Retrieved a block of TFVC changeset of size {size} - latest {latest}", block.Count, block[block.Count -1].ChangesetId);
-                    allChangesets.AddRange(block);
-                    searchCriteria.ToId = block[block.Count - 1].ChangesetId - 1;
-                    
-                    //search again
-                    block = await conn.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
-                };
-
-                ws.Cells["A2"].Value = "TFVC";
-                ws.Cells["B2"].Value = "TFVC";
-                ws.Cells["C2"].Value = "TFVC";
-                ws.Cells["D2"].Value = allChangesets.Count;
+                await ExtractSourceCodeInformation(conn, excel);
 
                 excel.Save();
             }
@@ -73,10 +50,161 @@ namespace AzureDevopsExportQuickAndDirty
             Console.ReadKey();
         }
 
+        private static async Task ExtractSourceCodeInformation(ConnectionManager conn, ExcelPackage excel)
+        {
+            var ws = excel.Workbook.Worksheets.Add("Source");
+            ws.Cells["A1"].Value = "Id";
+            ws.Cells["B1"].Value = "Type";
+            ws.Cells["C1"].Value = "Name";
+            ws.Cells["D1"].Value = "Commit/changeset";
+            ws.Cells["E1"].Value = "Branches";
+            ws.Cells["F1"].Value = "Files in main branch";
+
+            List<TfvcChangesetRef> allChangesets = new List<TfvcChangesetRef>(1000);
+            List<TfvcChangesetRef> block;
+            var searchCriteria = new TfvcChangesetSearchCriteria();
+            searchCriteria.ItemPath = $"$/{_options.TeamProject}";
+            block = await conn.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
+
+            while (block.Count > 0)
+            {
+                Log.Information("Retrieved a block of TFVC changeset of size {size} - latest {latest}", block.Count, block[block.Count - 1].ChangesetId);
+                allChangesets.AddRange(block);
+                searchCriteria.ToId = block[block.Count - 1].ChangesetId - 1;
+
+                //search again
+                block = await conn.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
+            };
+
+            ws.Cells["A2"].Value = "TFVC";
+            ws.Cells["B2"].Value = "TFVC";
+            ws.Cells["C2"].Value = "TFVC";
+            ws.Cells["D2"].Value = allChangesets.Count;
+
+            int row = 3;
+
+            var repositories = await conn.GitHttpClient.GetRepositoriesAsync(
+                project: _options.TeamProject
+            );
+            Log.Information("Get information about {count} git repositories", repositories.Count);
+            foreach (var repo in repositories)
+            {
+                ws.Cells[$"A{row}"].Value = repo.Id;
+                ws.Cells[$"B{row}"].Value = "Git";
+                ws.Cells[$"C{row}"].Value = repo.Name;
+
+                //retrieve commits
+                //var allCommits = new Dictionary<string, GitCommitRef>(1000);
+                //List<GitCommitRef> pageOfCommits;
+                //int page = 0;
+                //int pageSize = 100;
+                //GitQueryCommitsCriteria criteria = new GitQueryCommitsCriteria()
+                //{
+                //    Skip = 0,
+                //    Top = pageSize
+                //};
+                //do
+                //{
+                //    pageOfCommits = await conn.GitHttpClient.GetCommitsAsync(repo.Id, criteria);
+                //    foreach (var commit in pageOfCommits)
+                //    {
+                //        allCommits[commit.CommitId] = commit;
+                //    }
+
+                //    Log.Information("Loaded block of {count} commits for repo {repo} running total {rt}", pageOfCommits.Count, repo.Name, allCommits.Count);
+                //    page++;
+                //    criteria.Skip = page * pageSize;
+                //} while (pageOfCommits.Count > 0 && allCommits.Count < 10000);
+
+                FillInformationWithClone(ws, row, repo);
+
+                Log.Information("Get details for repo {repo}", repo.Name);
+                var branches = await conn.GitHttpClient.GetBranchesAsync(repo.Id);
+
+                ws.Cells[$"E{row}"].Value = branches.Count;
+                row++;
+            }
+        }
+
+        private static void FillInformationWithClone(ExcelWorksheet ws, int row, GitRepository repo)
+        {
+            try
+            {
+                var cloneTempFolder = Path.GetTempPath() + Guid.NewGuid().ToString();
+                Directory.CreateDirectory(cloneTempFolder);
+
+                Log.Information("Starting to clone git repository {repo} into {folder}", repo.Name, cloneTempFolder);
+                var gitCommandResult = ExecuteGitCommand(Path.GetTempPath(), $"clone {repo.RemoteUrl} {cloneTempFolder}");
+                Log.Debug("Cloned git repository {repo} into {folder}", repo.Name, cloneTempFolder);
+
+                gitCommandResult = ExecuteGitCommand(cloneTempFolder, "rev-list --all --count");
+
+                int commitCount = int.Parse(gitCommandResult.TrimCommandResponse());
+                ws.Cells[$"D{row}"].Value = commitCount;
+                int fileCount = Directory.GetFiles(cloneTempFolder, "*.*", SearchOption.AllDirectories).Length;
+                ws.Cells[$"F{row}"].Value = fileCount;
+
+                SafeDelete(cloneTempFolder);
+                Log.Debug("Deleted Cloned git repository {folder}", cloneTempFolder);
+                Log.Information("Get detailed information for repo {repo} commit {commit} files {files}", repo.Name, commitCount, fileCount);
+            }
+            catch (Exception ex)
+            {
+                //error getting information
+                Log.Error(ex, "Error cloning repository {repo}", repo.RemoteUrl);
+            }
+
+        }
+
+        private static void SafeDelete(string folderToDelete)
+        {
+            Task.Factory.StartNew(async () =>
+            {
+                while (true)
+                {
+                    try
+                    {
+                        if (Directory.Exists(folderToDelete))
+                        {
+                            foreach (var file in Directory.GetFiles(folderToDelete, "*.*", SearchOption.AllDirectories))
+                            {
+                                File.SetAttributes(file, FileAttributes.Normal);
+                                File.Delete(file);
+                            }
+                            Directory.Delete(folderToDelete, true);
+                        }
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        await Task.Delay(1000);
+                    }
+                }
+            });
+        }
+
+        private static string ExecuteGitCommand(string workingFolder, string arguments)
+        {
+            var pi = new ProcessStartInfo()
+            {
+                UseShellExecute = false,
+                WorkingDirectory = workingFolder,
+                FileName = "git",
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                //RedirectStandardError = true,
+                //RedirectStandardInput = true
+            };
+            var process = Process.Start(pi);
+            var output = process.StandardOutput.ReadToEnd();
+
+            process.WaitForExit();
+            return output;
+        }
+
         private static async Task ExtractPipelineInformations(ConnectionManager conn, ExcelPackage excel)
         {
-            var builds = await conn.BuildHttpClient.GetDefinitionsAsync2(project: _options.TeamProject);
-            Log.Information("Found {count} pipelines", builds.Count);
+            var order = DefinitionQueryOrder.LastModifiedDescending;
 
             //now we need to export all data in excel file.
             var ws = excel.Workbook.Worksheets.Add("Pipelines");
@@ -90,30 +218,48 @@ namespace AzureDevopsExportQuickAndDirty
 
             int row = 2;
 
-            foreach (var pipeline in builds)
+            var builds = await conn.BuildHttpClient.GetDefinitionsAsync2(project: _options.TeamProject, queryOrder: order);
+            Log.Information("Found {count} pipelines", builds.Count);
+
+            while (builds.Count > 0)
             {
-                Log.Information("Getting information details for pipeline {pipeline}", pipeline.Name);
-                var details = await conn.BuildHttpClient.GetDefinitionAsync(_options.TeamProject, pipeline.Id);
+                foreach (var pipeline in builds)
+                {
+                    Log.Information("Getting information details for pipeline {pipeline}", pipeline.Name);
+                    var details = await conn.BuildHttpClient.GetDefinitionAsync(_options.TeamProject, pipeline.Id);
 
-                var buildResults = await conn.BuildHttpClient.GetBuildsAsync2(
-                    project: _options.TeamProject,
-                    definitions: new[] { pipeline.Id });
+                    var buildResults = await conn.BuildHttpClient.GetBuildsAsync2(
+                        project: _options.TeamProject,
+                        definitions: new[] { pipeline.Id });
 
-                ws.Cells[$"A{row}"].Value = pipeline.Id;
-                ws.Cells[$"B{row}"].Value = pipeline.Name;
-                ws.Cells[$"C{row}"].Value = details.Path;
-                ws.Cells[$"D{row}"].Value = pipeline.Url;
+                    ws.Cells[$"A{row}"].Value = pipeline.Id;
+                    ws.Cells[$"B{row}"].Value = pipeline.Name;
+                    ws.Cells[$"C{row}"].Value = details.Path;
+                    ws.Cells[$"D{row}"].Value = pipeline.Url;
 
-                var latestGoodResult = buildResults
-                    .Where(br => br.Status == Microsoft.TeamFoundation.Build.WebApi.BuildStatus.Completed
-                    && br.Result == Microsoft.TeamFoundation.Build.WebApi.BuildResult.Succeeded)
-                    .OrderByDescending(r => r.FinishTime)
-                    .FirstOrDefault();
+                    var latestGoodResult = buildResults
+                        .Where(br => br.Status == Microsoft.TeamFoundation.Build.WebApi.BuildStatus.Completed
+                        && br.Result == Microsoft.TeamFoundation.Build.WebApi.BuildResult.Succeeded)
+                        .OrderByDescending(r => r.FinishTime)
+                        .FirstOrDefault();
 
-                ws.Cells[$"E{row}"].Value = latestGoodResult?.FinishTime?.ToString("yyyy/MM/dd");
-                ws.Cells[$"F{row}"].Value = details.Repository.Name;
+                    ws.Cells[$"E{row}"].Value = latestGoodResult?.FinishTime?.ToString("yyyy/MM/dd");
+                    ws.Cells[$"F{row}"].Value = details.Repository.Name;
 
-                row++;
+                    row++;
+                }
+
+                if (!String.IsNullOrEmpty(builds.ContinuationToken))
+                {
+                    builds = await conn.BuildHttpClient.GetDefinitionsAsync2(
+                        project: _options.TeamProject,
+                        queryOrder: order,
+                        continuationToken: builds.ContinuationToken);
+                }
+                else
+                {
+                    break; //finished cycle
+                }
             }
         }
 

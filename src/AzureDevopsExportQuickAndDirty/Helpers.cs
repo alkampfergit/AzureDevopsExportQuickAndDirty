@@ -13,5 +13,10 @@ namespace AzureDevopsExportQuickAndDirty
 
             return default;
         }
+
+        public static string TrimCommandResponse(this string original) 
+        {
+            return original.Trim(' ', '\n', '\r', '\t');
+        }
     }
 }

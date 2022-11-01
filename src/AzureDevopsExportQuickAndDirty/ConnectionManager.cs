@@ -35,6 +35,23 @@ namespace AzureDevopsExportQuickAndDirty
             InitBaseServices();
         }
 
+        private VssConnection _vssConnection;
+
+        private WorkItemTrackingHttpClient _workItemTrackingHttpClient;
+        public WorkItemTrackingHttpClient WorkItemTrackingHttpClient => _workItemTrackingHttpClient;
+
+        private BuildHttpClient _buildHttpClient;
+        public BuildHttpClient BuildHttpClient => _buildHttpClient;
+
+        private PipelineHttpClient _pipelineHttpClient;
+        public PipelineHttpClient PipelineHttpClient => _pipelineHttpClient;
+
+        private TfvcHttpClient _tfvcHttpClient;
+        public TfvcHttpClient TfvcHttpClient => _tfvcHttpClient;
+
+        private GitHttpClient _gitHttpClient;
+        public GitHttpClient GitHttpClient => _gitHttpClient;
+
         private void InitBaseServices()
         {
             try
@@ -43,6 +60,7 @@ namespace AzureDevopsExportQuickAndDirty
                  _workItemTrackingHttpClient = _vssConnection.GetClient<WorkItemTrackingHttpClient>();
                  _pipelineHttpClient = _vssConnection.GetClient<PipelineHttpClient>();
                  _tfvcHttpClient = _vssConnection.GetClient<TfvcHttpClient>();
+                _gitHttpClient = _vssConnection.GetClient<GitHttpClient>();
             }
             catch (Exception ex)
             {
@@ -71,20 +89,6 @@ namespace AzureDevopsExportQuickAndDirty
 
             InitBaseServices();
         }
-
-        private VssConnection _vssConnection;
-
-        private WorkItemTrackingHttpClient _workItemTrackingHttpClient;
-        public WorkItemTrackingHttpClient WorkItemTrackingHttpClient => _workItemTrackingHttpClient; 
-
-        private BuildHttpClient _buildHttpClient;
-        public BuildHttpClient BuildHttpClient => _buildHttpClient; 
-        
-        private PipelineHttpClient _pipelineHttpClient;
-        public PipelineHttpClient PipelineHttpClient => _pipelineHttpClient;
-
-        private TfvcHttpClient _tfvcHttpClient;
-        public TfvcHttpClient TfvcHttpClient => _tfvcHttpClient;
 
         private Boolean connectoToAccount(String accountUri, String accessToken)
         {
