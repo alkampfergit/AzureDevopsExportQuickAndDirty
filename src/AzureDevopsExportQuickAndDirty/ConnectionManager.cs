@@ -1,5 +1,6 @@
 ﻿using AzureDevopsExportQuickAndDirty.Clients;
 using Microsoft.TeamFoundation.Build.WebApi;
+using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.VisualStudio.Services.Client;
 using Microsoft.VisualStudio.Services.Common;
@@ -41,6 +42,7 @@ namespace AzureDevopsExportQuickAndDirty
                 _buildHttpClient = _vssConnection.GetClient<BuildHttpClient>(); 
                  _workItemTrackingHttpClient = _vssConnection.GetClient<WorkItemTrackingHttpClient>();
                  _pipelineHttpClient = _vssConnection.GetClient<PipelineHttpClient>();
+                 _tfvcHttpClient = _vssConnection.GetClient<TfvcHttpClient>();
             }
             catch (Exception ex)
             {
@@ -80,6 +82,9 @@ namespace AzureDevopsExportQuickAndDirty
         
         private PipelineHttpClient _pipelineHttpClient;
         public PipelineHttpClient PipelineHttpClient => _pipelineHttpClient;
+
+        private TfvcHttpClient _tfvcHttpClient;
+        public TfvcHttpClient TfvcHttpClient => _tfvcHttpClient;
 
         private Boolean connectoToAccount(String accountUri, String accessToken)
         {

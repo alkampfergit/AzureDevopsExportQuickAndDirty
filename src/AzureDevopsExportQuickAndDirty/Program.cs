@@ -1,4 +1,5 @@
 ﻿using CommandLine;
+using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Microsoft.VisualStudio.Services.WebApi;
 using OfficeOpenXml;
@@ -8,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 
 namespace AzureDevopsExportQuickAndDirty
@@ -35,34 +37,84 @@ namespace AzureDevopsExportQuickAndDirty
 
                 //await ExtractAllWorkItemsInfo(conn, excel);
 
-                //grab pipelines
-                //var pipelines = await conn.PipelineHttpClient.ListAsync(_options.TeamProject);
-                
-                var builds = await conn.BuildHttpClient.GetDefinitionsAsync2(project: _options.TeamProject);
-                Log.Information("Found {count} pipelines", builds.Count);
+                //await ExtractPipelineInformations(conn, excel);
 
-                //now we need to export all data in excel file.
-                var ws = excel.Workbook.Worksheets.Add("Pipelines");
+                var ws = excel.Workbook.Worksheets.Add("Source");
                 ws.Cells["A1"].Value = "Id";
-                ws.Cells["B1"].Value = "Name";
-                ws.Cells["C1"].Value = "Folder";
-                ws.Cells["D1"].Value = "Url";
+                ws.Cells["B1"].Value = "Type";
+                ws.Cells["C1"].Value = "Name";
+                ws.Cells["D1"].Value = "Commit/changeset";
 
-                int row = 2;
-                foreach (var pipeline in builds)
+                List<TfvcChangesetRef> allChangesets = new List<TfvcChangesetRef>(1000);
+                List<TfvcChangesetRef> block;
+                var searchCriteria = new TfvcChangesetSearchCriteria();
+                searchCriteria.ItemPath = $"$/{_options.TeamProject}";
+                block = await conn.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
+                
+                while (block.Count > 0)
                 {
-                    ws.Cells[$"A{row}"].Value = pipeline.Id;
-                    ws.Cells[$"B{row}"].Value = pipeline.Name;
-                    ws.Cells[$"C{row}"].Value = "";
-                    ws.Cells[$"D{row}"].Value = pipeline.Url;
-                    row++;
-                }              
+                    Log.Information("Retrieved a block of TFVC changeset of size {size} - latest {latest}", block.Count, block[block.Count -1].ChangesetId);
+                    allChangesets.AddRange(block);
+                    searchCriteria.ToId = block[block.Count - 1].ChangesetId - 1;
+                    
+                    //search again
+                    block = await conn.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
+                };
+
+                ws.Cells["A2"].Value = "TFVC";
+                ws.Cells["B2"].Value = "TFVC";
+                ws.Cells["C2"].Value = "TFVC";
+                ws.Cells["D2"].Value = allChangesets.Count;
 
                 excel.Save();
             }
 
             System.Diagnostics.Process.Start(newFile.FullName);
             Console.ReadKey();
+        }
+
+        private static async Task ExtractPipelineInformations(ConnectionManager conn, ExcelPackage excel)
+        {
+            var builds = await conn.BuildHttpClient.GetDefinitionsAsync2(project: _options.TeamProject);
+            Log.Information("Found {count} pipelines", builds.Count);
+
+            //now we need to export all data in excel file.
+            var ws = excel.Workbook.Worksheets.Add("Pipelines");
+            ws.Cells["A1"].Value = "Id";
+            ws.Cells["B1"].Value = "Name";
+            ws.Cells["C1"].Value = "Folder";
+            ws.Cells["D1"].Value = "Url";
+            ws.Cells["E1"].Value = "LatestSuccessfulBuild";
+            ws.Cells["F1"].Value = "Repository";
+            ws.Cells["G1"].Value = "TotalRuns";
+
+            int row = 2;
+
+            foreach (var pipeline in builds)
+            {
+                Log.Information("Getting information details for pipeline {pipeline}", pipeline.Name);
+                var details = await conn.BuildHttpClient.GetDefinitionAsync(_options.TeamProject, pipeline.Id);
+
+                var buildResults = await conn.BuildHttpClient.GetBuildsAsync2(
+                    project: _options.TeamProject,
+                    definitions: new[] { pipeline.Id });
+
+                ws.Cells[$"A{row}"].Value = pipeline.Id;
+                ws.Cells[$"B{row}"].Value = pipeline.Name;
+                ws.Cells[$"C{row}"].Value = details.Path;
+                ws.Cells[$"D{row}"].Value = pipeline.Url;
+
+                var latestGoodResult = buildResults
+                    .Where(br => br.Status == Microsoft.TeamFoundation.Build.WebApi.BuildStatus.Completed
+                    && br.Result == Microsoft.TeamFoundation.Build.WebApi.BuildResult.Succeeded)
+                    .OrderByDescending(r => r.FinishTime)
+                    .FirstOrDefault();
+
+                ws.Cells[$"E{row}"].Value = latestGoodResult?.FinishTime?.ToString("yyyy/MM/dd");
+                ws.Cells[$"F{row}"].Value = details.Repository.Name;
+
+                row++;
+            }
         }
 
         private static void HandleParseError(IEnumerable<Error> errs)
