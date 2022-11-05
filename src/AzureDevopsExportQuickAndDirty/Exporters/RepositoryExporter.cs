@@ -46,75 +46,101 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             Log.Information("Get information about {count} git repositories", repositories.Count);
             foreach (var repo in repositories)
             {
-                var info = new RepositoryInformations()
+                try
                 {
-                    Id = repo.Id,
-                    Type = "Git",
-                    Name = repo.Name,
-                };
-                result.Add(info);
-                ws.Cells[$"A{row}"].Value = repo.Id;
-                ws.Cells[$"B{row}"].Value = "Git";
-                ws.Cells[$"C{row}"].Value = repo.Name;
-                ws.Cells[$"G{row}"].Value = info.PipelineCount = pipelineInfo.Count(p => p.RepositoryId == repo.Id.ToString());
-
-                //retrieve commits
-                //var allCommits = new Dictionary<string, GitCommitRef>(1000);
-                //List<GitCommitRef> pageOfCommits;
-                //int page = 0;
-                //int pageSize = 100;
-                //GitQueryCommitsCriteria criteria = new GitQueryCommitsCriteria()
-                //{
-                //    Skip = 0,
-                //    Top = pageSize
-                //};
-                //do
-                //{
-                //    pageOfCommits = await _connection.GitHttpClient.GetCommitsAsync(repo.Id, criteria);
-                //    foreach (var commit in pageOfCommits)
-                //    {
-                //        allCommits[commit.CommitId] = commit;
-                //    }
-
-                //    Log.Information("Loaded block of {count} commits for repo {repo} running total {rt}", pageOfCommits.Count, repo.Name, allCommits.Count);
-                //    page++;
-                //    criteria.Skip = page * pageSize;
-                //} while (pageOfCommits.Count > 0 && allCommits.Count < 10000);
-
-                FillInformationWithClone(ws, row, repo, info);
-
-                Log.Information("Get details for repo {repo}", repo.Name);
-                var branches = await _connection.GitHttpClient.GetBranchesAsync(repo.Id);
-
-                ws.Cells[$"E{row}"].Value = info.BranchesCount = branches.Count;
+                    await GetInfoForRepository(pipelineInfo, result, ws, row, repo);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error retrieving data for repository {name}", repo.Name);
+                    throw;
+                }
                 row++;
             }
 
             return result;
         }
 
+        private async Task GetInfoForRepository(
+            IReadOnlyCollection<PipelineInformations> pipelineInfo,
+            List<RepositoryInformations> result,
+            OfficeOpenXml.ExcelWorksheet ws,
+            int row,
+            GitRepository repo)
+        {
+            var info = new RepositoryInformations()
+            {
+                Id = repo.Id,
+                Type = "Git",
+                Name = repo.Name,
+            };
+            result.Add(info);
+            ws.Cells[$"A{row}"].Value = repo.Id;
+            ws.Cells[$"B{row}"].Value = "Git";
+            ws.Cells[$"C{row}"].Value = repo.Name;
+            ws.Cells[$"G{row}"].Value = info.PipelineCount = pipelineInfo.Count(p => p.RepositoryId == repo.Id.ToString());
+
+            //retrieve commits
+            //var allCommits = new Dictionary<string, GitCommitRef>(1000);
+            //List<GitCommitRef> pageOfCommits;
+            //int page = 0;
+            //int pageSize = 100;
+            //GitQueryCommitsCriteria criteria = new GitQueryCommitsCriteria()
+            //{
+            //    Skip = 0,
+            //    Top = pageSize
+            //};
+            //do
+            //{
+            //    pageOfCommits = await _connection.GitHttpClient.GetCommitsAsync(repo.Id, criteria);
+            //    foreach (var commit in pageOfCommits)
+            //    {
+            //        allCommits[commit.CommitId] = commit;
+            //    }
+
+            //    Log.Information("Loaded block of {count} commits for repo {repo} running total {rt}", pageOfCommits.Count, repo.Name, allCommits.Count);
+            //    page++;
+            //    criteria.Skip = page * pageSize;
+            //} while (pageOfCommits.Count > 0 && allCommits.Count < 10000);
+
+            FillInformationWithClone(ws, row, repo, info);
+
+            Log.Information("Get details for repo {repo}", repo.Name);
+            var branches = await _connection.GitHttpClient.GetBranchesAsync(repo.Id);
+
+            ws.Cells[$"E{row}"].Value = info.BranchesCount = branches.Count;
+        }
+
         private async Task DumpTfVcInformation(string teamProject, OfficeOpenXml.ExcelWorksheet ws)
         {
-            List<TfvcChangesetRef> allChangesets = new List<TfvcChangesetRef>(1000);
-            List<TfvcChangesetRef> block;
-            var searchCriteria = new TfvcChangesetSearchCriteria();
-            searchCriteria.ItemPath = $"$/{teamProject}";
-            block = await _connection.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
-
-            while (block.Count > 0)
+            try
             {
-                Log.Information("Retrieved a block of TFVC changeset of size {size} - latest {latest}", block.Count, block[block.Count - 1].ChangesetId);
-                allChangesets.AddRange(block);
-                searchCriteria.ToId = block[block.Count - 1].ChangesetId - 1;
 
-                //search again
+                List<TfvcChangesetRef> allChangesets = new List<TfvcChangesetRef>(1000);
+                List<TfvcChangesetRef> block;
+                var searchCriteria = new TfvcChangesetSearchCriteria();
+                searchCriteria.ItemPath = $"$/{teamProject}";
                 block = await _connection.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
-            };
 
-            ws.Cells["A2"].Value = "TFVC";
-            ws.Cells["B2"].Value = "TFVC";
-            ws.Cells["C2"].Value = "TFVC";
-            ws.Cells["D2"].Value = allChangesets.Count;
+                while (block.Count > 0)
+                {
+                    Log.Information("Retrieved a block of TFVC changeset of size {size} - latest {latest}", block.Count, block[block.Count - 1].ChangesetId);
+                    allChangesets.AddRange(block);
+                    searchCriteria.ToId = block[block.Count - 1].ChangesetId - 1;
+
+                    //search again
+                    block = await _connection.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
+                };
+
+                ws.Cells["A2"].Value = "TFVC";
+                ws.Cells["B2"].Value = "TFVC";
+                ws.Cells["C2"].Value = "TFVC";
+                ws.Cells["D2"].Value = allChangesets.Count;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Unable to get information for TFVC repository, it does not exists or you do not have permission");
+            }
         }
 
         private static void FillInformationWithClone(OfficeOpenXml.ExcelWorksheet ws, int row, GitRepository repo, RepositoryInformations info)

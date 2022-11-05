@@ -1,13 +1,11 @@
-﻿using AzureDevopsExportQuickAndDirty.Support;
+﻿using AzureDevopsExportQuickAndDirty.Exporters.Models;
 using Microsoft.TeamFoundation.Build.WebApi;
-using Microsoft.VisualStudio.Services.Common.CommandLine;
 using OfficeOpenXml;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using System;
-using System.Linq;
 using Serilog;
-using AzureDevopsExportQuickAndDirty.Exporters.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace AzureDevopsExportQuickAndDirty.Exporters
 {
@@ -47,35 +45,14 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             {
                 foreach (var pipeline in builds)
                 {
-                    PipelineInformations info = new PipelineInformations(pipeline);
-                    pipelineInformations.Add(info);
-                    Log.Information("Getting information details for pipeline {pipeline}", pipeline.Name);
-                    var details = await _connection.BuildHttpClient.GetDefinitionAsync(teamProject, pipeline.Id);
-
-                    var buildResults = await _connection.BuildHttpClient.GetBuildsAsync2(
-                        project: teamProject,
-                        definitions: new[] { pipeline.Id });
-
-                    ws.Cells[$"A{row}"].Value = pipeline.Id;
-                    ws.Cells[$"B{row}"].Value = pipeline.Name;
-                    ws.Cells[$"C{row}"].Value = details.Path;
-                    ws.Cells[$"D{row}"].Value = pipeline.Url;
-
-                    var latestGoodResult = buildResults
-                        .Where(br => br.Status == BuildStatus.Completed
-                        && br.Result == BuildResult.Succeeded)
-                        .OrderByDescending(r => r.FinishTime)
-                        .FirstOrDefault();
-
-                    ws.Cells[$"E{row}"].Value = info.LastGoodResult = latestGoodResult?.FinishTime?.ToString("yyyy/MM/dd");
-                    ws.Cells[$"F{row}"].Value = info.RepositoryName =  details.Repository.Name;
-                    ws.Cells[$"G{row}"].Value = info.RepositoryId = details.Repository.Id;
-
-                    var stats = await _connection.BuildHttpClient.GetBuildsAsync2(
-                        project: teamProject,
-                        definitions: new[] { details.Id });
-
-                    ws.Cells[$"H{row}"].Value =  info.ActiveBuildCount = stats.Count;
+                    try
+                    {
+                        await ExtractPipelineInfo(teamProject, pipelineInformations, ws, row, pipeline);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Error extracting data for pipeline {pipeline}", pipeline.Name);
+                    }
 
                     row++;
                 }
@@ -94,6 +71,39 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             }
 
             return pipelineInformations;
+        }
+
+        private async Task ExtractPipelineInfo(string teamProject, List<PipelineInformations> pipelineInformations, ExcelWorksheet ws, int row, BuildDefinitionReference pipeline)
+        {
+            PipelineInformations info = new PipelineInformations(pipeline);
+            pipelineInformations.Add(info);
+            Log.Information("Getting information details for pipeline {pipeline}", pipeline.Name);
+            var details = await _connection.BuildHttpClient.GetDefinitionAsync(teamProject, pipeline.Id);
+
+            var buildResults = await _connection.BuildHttpClient.GetBuildsAsync2(
+                project: teamProject,
+                definitions: new[] { pipeline.Id });
+
+            ws.Cells[$"A{row}"].Value = pipeline.Id;
+            ws.Cells[$"B{row}"].Value = pipeline.Name;
+            ws.Cells[$"C{row}"].Value = details.Path;
+            ws.Cells[$"D{row}"].Value = pipeline.Url;
+
+            var latestGoodResult = buildResults
+                .Where(br => br.Status == BuildStatus.Completed
+                && br.Result == BuildResult.Succeeded)
+                .OrderByDescending(r => r.FinishTime)
+                .FirstOrDefault();
+
+            ws.Cells[$"E{row}"].Value = info.LastGoodResult = latestGoodResult?.FinishTime?.ToString("yyyy/MM/dd");
+            ws.Cells[$"F{row}"].Value = info.RepositoryName = details.Repository.Name;
+            ws.Cells[$"G{row}"].Value = info.RepositoryId = details.Repository.Id;
+
+            var stats = await _connection.BuildHttpClient.GetBuildsAsync2(
+                project: teamProject,
+                definitions: new[] { details.Id });
+
+            ws.Cells[$"H{row}"].Value = info.ActiveBuildCount = stats.Count;
         }
     }
 }

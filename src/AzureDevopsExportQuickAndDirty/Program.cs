@@ -67,12 +67,22 @@ namespace AzureDevopsExportQuickAndDirty
         private static FileInfo GetExcelTemplateFileName()
         {
             var outDirectory = _options.GetOuputFolder();
-            var fileName = Path.Combine(outDirectory, _options.TeamProject.SanitizeForFileSystem() + ".xlsx");
+            string fileName = null;
+            int index = 0;
+            do
+            {
+                fileName = Path.Combine(
+                    outDirectory, 
+                    _options.TeamProject.SanitizeForFileSystem() +
+                    (index > 0 ? $" ({index})" : String.Empty)
+                    + ".xlsx");
+                index++;
+            } while (File.Exists(fileName));
             var template = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Templates", "BaseTemplate.xlsx");
             File.Copy(template, fileName);
             return new FileInfo(fileName);
         }
-     
+
         private static void HandleParseError(IEnumerable<Error> errs)
         {
             foreach (var parseError in errs)
