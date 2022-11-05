@@ -7,21 +7,14 @@ using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
 using Serilog;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace AzureDevopsExportQuickAndDirty
 {
     public class ConnectionManager
     {
-        public static ConnectionManager Instance { get; private set; }
-
-        public ConnectionManager()
+        public ConnectionManager() 
         {
-            Instance = this;
         }
 
         /// <summary>
@@ -29,11 +22,16 @@ namespace AzureDevopsExportQuickAndDirty
         /// to access your account.
         /// </summary>
         /// <param name="accessToken"></param>
-        public ConnectionManager(String accountUri, String accessToken) : this()
+        public async Task<bool> ConnectAsync(String accountUri, String accessToken)
         {
-            connectoToAccount(accountUri, accessToken);
-            InitBaseServices();
+            var connected = await ConnectoToAccountAsync(accountUri, accessToken);
+            if (connected)
+            {
+                InitBaseServices();
+            }
+            return connected;
         }
+
 
         private VssConnection _vssConnection;
 
@@ -56,10 +54,10 @@ namespace AzureDevopsExportQuickAndDirty
         {
             try
             {
-                _buildHttpClient = _vssConnection.GetClient<BuildHttpClient>(); 
-                 _workItemTrackingHttpClient = _vssConnection.GetClient<WorkItemTrackingHttpClient>();
-                 _pipelineHttpClient = _vssConnection.GetClient<PipelineHttpClient>();
-                 _tfvcHttpClient = _vssConnection.GetClient<TfvcHttpClient>();
+                _buildHttpClient = _vssConnection.GetClient<BuildHttpClient>();
+                _workItemTrackingHttpClient = _vssConnection.GetClient<WorkItemTrackingHttpClient>();
+                _pipelineHttpClient = _vssConnection.GetClient<PipelineHttpClient>();
+                _tfvcHttpClient = _vssConnection.GetClient<TfvcHttpClient>();
                 _gitHttpClient = _vssConnection.GetClient<GitHttpClient>();
             }
             catch (Exception ex)
@@ -75,22 +73,7 @@ namespace AzureDevopsExportQuickAndDirty
             }
         }
 
-        public async Task ConnectAsync(string accountUri)
-        {
-            Uri uri = new Uri(accountUri);
-
-            var creds = new VssClientCredentials(
-                new Microsoft.VisualStudio.Services.Common.WindowsCredential(false),
-                new VssFederatedCredential(true),
-                CredentialPromptType.PromptIfNeeded);
-
-            _vssConnection = new VssConnection(uri, creds);
-            await _vssConnection.ConnectAsync().ConfigureAwait(false);
-
-            InitBaseServices();
-        }
-
-        private Boolean connectoToAccount(String accountUri, String accessToken)
+        private async Task<Boolean> ConnectoToAccountAsync(String accountUri, String accessToken)
         {
             //login for VSTS
             VssCredentials creds;
@@ -105,16 +88,17 @@ namespace AzureDevopsExportQuickAndDirty
                    accessToken);
             }
             creds.Storage = new VssClientCredentialStorage();
-
             _vssConnection = new VssConnection(new Uri(accountUri), creds);
-            _vssConnection.ConnectAsync().Wait();
-            return true;
-        }
-
-
-        public T GetClient<T>() where T : VssHttpClientBase
-        {
-            return _vssConnection.GetClient<T>();
+            try
+            {
+                await _vssConnection.ConnectAsync();
+                return !"anonymous".Equals(_vssConnection.AuthorizedIdentity.DisplayName, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error logging into the account");
+            }
+            return false;
         }
     }
 }

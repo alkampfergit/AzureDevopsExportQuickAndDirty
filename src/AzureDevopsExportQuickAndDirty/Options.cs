@@ -12,7 +12,7 @@ namespace AzureDevopsExportQuickAndDirty
         public String ServiceAddress { get; set; }
 
         [Option(
-             "token",
+             "accesstoken",
              Required = false,
              HelpText = "Access token")]
         public String AccessToken { get; set; }

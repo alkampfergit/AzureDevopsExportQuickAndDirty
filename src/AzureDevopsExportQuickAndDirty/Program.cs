@@ -28,7 +28,14 @@ namespace AzureDevopsExportQuickAndDirty
                 .WithParsed<Options>(opts => _options = opts)
                 .WithNotParsed<Options>((errs) => HandleParseError(errs));
 
-            ConnectionManager conn = new ConnectionManager(_options.ServiceAddress, _options.AccessToken);
+            ConnectionManager conn = new ConnectionManager();
+            var connected = await conn.ConnectAsync(_options.ServiceAddress, _options.AccessToken);
+
+            if (!connected)
+            {
+                ConsoleUtils.ErrorAndExit("Login failed");
+                return;
+            }
 
             var fileName = Path.GetTempPath() + Guid.NewGuid().ToString() + ".xlsx";
             var template = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Templates", "BaseTemplate.xlsx");
