@@ -23,6 +23,22 @@ namespace AzureDevopsExportQuickAndDirty
             HelpText = "Name of the teamproject")]
         public String TeamProject { get; set; }
 
+        [Option(
+            "outfolder",
+            Required = false,
+            HelpText = "name of folder where excel files will be generated")]
+        public String OutFolder { get; set; }
+
+        internal string GetOuputFolder()
+        {
+            if (String.IsNullOrEmpty(OutFolder))
+            {
+                return AppDomain.CurrentDomain.BaseDirectory;
+            }
+
+            return OutFolder;
+        }
+
         //[Option(
         //    "sprints",
         //    Required = false,
