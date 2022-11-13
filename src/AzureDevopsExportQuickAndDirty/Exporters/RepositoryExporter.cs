@@ -115,7 +115,6 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
         {
             try
             {
-
                 List<TfvcChangesetRef> allChangesets = new List<TfvcChangesetRef>(1000);
                 List<TfvcChangesetRef> block;
                 var searchCriteria = new TfvcChangesetSearchCriteria();
@@ -130,12 +129,20 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
 
                     //search again
                     block = await _connection.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
-                };
+                }
 
                 ws.Cells["A2"].Value = "TFVC";
                 ws.Cells["B2"].Value = "TFVC";
                 ws.Cells["C2"].Value = "TFVC";
                 ws.Cells["D2"].Value = allChangesets.Count;
+
+                //count branches
+                var branches = await _connection.TfvcHttpClient.GetBranchesAsync(teamProject);
+                ws.Cells["E2"].Value = branches.Count;
+
+                //now count files
+                var items = await _connection.TfvcHttpClient.GetItemsAsync(project: teamProject, recursionLevel: VersionControlRecursionType.Full);
+                ws.Cells["F2"].Value = items.Count(i => !i.IsFolder);
             }
             catch (Exception ex)
             {

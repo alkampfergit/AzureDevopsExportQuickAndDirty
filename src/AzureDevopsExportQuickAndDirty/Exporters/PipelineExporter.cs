@@ -97,7 +97,15 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
 
             ws.Cells[$"E{row}"].Value = info.LastGoodResult = latestGoodResult?.FinishTime?.ToString("yyyy/MM/dd");
             ws.Cells[$"F{row}"].Value = info.RepositoryName = details.Repository.Name;
-            ws.Cells[$"G{row}"].Value = info.RepositoryId = details.Repository.Id;
+            info.RepositoryId = details.Repository.Id;
+            if (details.Repository.Type == "TfsVersionControl")
+            {
+                ws.Cells[$"G{row}"].Value = details.Repository.DefaultBranch;
+            }
+            else
+            {
+                ws.Cells[$"G{row}"].Value = details.Repository.Id;
+            }
 
             var stats = await _connection.BuildHttpClient.GetBuildsAsync2(
                 project: teamProject,

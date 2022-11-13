@@ -52,7 +52,7 @@ namespace AzureDevopsExportQuickAndDirty
             {
                 Log.Information("Created temporary excel file {file}", newFile);
 
-                await workItemExporter.ExtractAllWorkItemsInfo(excel, _options.TeamProject);
+                //await workItemExporter.ExtractAllWorkItemsInfo(excel, _options.TeamProject);
 
                 var pipelineInfo = await pipelineExporter.ExtractPipelineInformations(excel, _options.TeamProject);
 
@@ -67,7 +67,7 @@ namespace AzureDevopsExportQuickAndDirty
         private static FileInfo GetExcelTemplateFileName()
         {
             var outDirectory = _options.GetOuputFolder();
-            string fileName = null;
+            string fileName;
             int index = 0;
             do
             {
@@ -95,7 +95,7 @@ namespace AzureDevopsExportQuickAndDirty
         {
             Log.Logger = new LoggerConfiguration()
                 .Enrich.WithExceptionDetails()
-                .MinimumLevel.Information()
+                .MinimumLevel.Debug()
                 .WriteTo.Console()
                 .WriteTo.File(
                     "logs\\logs.txt",
