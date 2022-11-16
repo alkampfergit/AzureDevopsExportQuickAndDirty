@@ -10,13 +10,12 @@ namespace AzureDevopsExportQuickAndDirty.Exporters.Models
             Id = pipeline.Id;
             Name = pipeline.Name;
             Url = pipeline.Url;
-            Path = pipeline.Path;
         }
 
         public int Id { get; }
         public string Name { get; }
         public string Url { get; }
-        public string Path { get; }
+        public string Path { get; internal set; }
         public string LastGoodResult { get; internal set; }
         public string RepositoryName { get; internal set; }
         public string RepositoryId { get; internal set; }

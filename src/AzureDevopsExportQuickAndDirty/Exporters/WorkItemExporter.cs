@@ -132,6 +132,12 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
                     ws.Cells[$"H{row}"].Value = info.NumOfCodeRelations = workItem.Relations.Count(r => WorkItemHelper.IsLinkToCode(r.Url));
                     ws.Cells[$"I{row}"].Value = info.NumOfPullRequests = workItem.Relations.Count(r => WorkItemHelper.IsLinkToPullRequest(r.Url));
                 }
+                else
+                {
+                    ws.Cells[$"G{row}"].Value = 0;
+                    ws.Cells[$"H{row}"].Value = 0;
+                    ws.Cells[$"I{row}"].Value = 0;
+                }
                 row++;
             }
 

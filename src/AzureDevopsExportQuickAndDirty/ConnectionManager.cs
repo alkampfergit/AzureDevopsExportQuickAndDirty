@@ -4,7 +4,6 @@ using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.VisualStudio.Services.Client;
 using Microsoft.VisualStudio.Services.Common;
-using Microsoft.VisualStudio.Services.Users.Client;
 using Microsoft.VisualStudio.Services.WebApi;
 using Serilog;
 using System;
@@ -14,10 +13,6 @@ namespace AzureDevopsExportQuickAndDirty
 {
     public class ConnectionManager
     {
-        public ConnectionManager()
-        {
-        }
-
         /// <summary>
         /// Perform a connection with an access token, simplest way to give permission to a program
         /// to access your account.
@@ -33,7 +28,6 @@ namespace AzureDevopsExportQuickAndDirty
             return connected;
         }
 
-
         private VssConnection _vssConnection;
 
         private WorkItemTrackingHttpClient _workItemTrackingHttpClient;
@@ -47,7 +41,6 @@ namespace AzureDevopsExportQuickAndDirty
 
         private TfvcHttpClient _tfvcHttpClient;
         public TfvcHttpClient TfvcHttpClient => _tfvcHttpClient;
-
 
         private CustomTfvcHttpClient _customTfvcHttpClient;
         public CustomTfvcHttpClient CustomTfvcHttpClient => _customTfvcHttpClient;
@@ -98,10 +91,13 @@ namespace AzureDevopsExportQuickAndDirty
             try
             {
                 await _vssConnection.ConnectAsync();
-                
+
                 //Can try to force login to the server.
-                //var client = _vssConnection.GetClient<Microsoft.TeamFoundation.Core.WebApi.ProjectHttpClient>();
-                //var allprojects = await client.GetProjects();
+                if ("anonymous".Equals(_vssConnection.AuthorizedIdentity.DisplayName, StringComparison.OrdinalIgnoreCase))
+                {
+                    var client = _vssConnection.GetClient<Microsoft.TeamFoundation.Core.WebApi.ProjectHttpClient>();
+                    var allprojects = await client.GetProjects();
+                }
                 return !"anonymous".Equals(_vssConnection.AuthorizedIdentity.DisplayName, StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception ex)

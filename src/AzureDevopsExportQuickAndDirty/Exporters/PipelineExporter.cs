@@ -86,7 +86,7 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
 
             ws.Cells[$"A{row}"].Value = pipeline.Id;
             ws.Cells[$"B{row}"].Value = pipeline.Name;
-            ws.Cells[$"C{row}"].Value = details.Path;
+
             ws.Cells[$"D{row}"].Value = pipeline.Url;
 
             var latestGoodResult = buildResults
@@ -100,10 +100,12 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             info.RepositoryId = details.Repository.Id;
             if (details.Repository.Type == "TfsVersionControl")
             {
+                ws.Cells[$"C{row}"].Value = info.Path = details.Repository.DefaultBranch;
                 ws.Cells[$"G{row}"].Value = details.Repository.DefaultBranch;
             }
             else
             {
+                ws.Cells[$"C{row}"].Value = info.Path = details.Path;
                 ws.Cells[$"G{row}"].Value = details.Repository.Id;
             }
 

@@ -1,10 +1,6 @@
 ﻿using AzureDevopsExportQuickAndDirty.Exporters;
 using AzureDevopsExportQuickAndDirty.Support;
 using CommandLine;
-using Microsoft.TeamFoundation.Build.WebApi;
-using Microsoft.TeamFoundation.SourceControl.WebApi;
-using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
-using Microsoft.VisualStudio.Services.WebApi;
 using OfficeOpenXml;
 using Serilog;
 using Serilog.Exceptions;
@@ -52,7 +48,7 @@ namespace AzureDevopsExportQuickAndDirty
             {
                 Log.Information("Created temporary excel file {file}", newFile);
 
-                //await workItemExporter.ExtractAllWorkItemsInfo(excel, _options.TeamProject);
+                await workItemExporter.ExtractAllWorkItemsInfo(excel, _options.TeamProject);
 
                 var pipelineInfo = await pipelineExporter.ExtractPipelineInformations(excel, _options.TeamProject);
 
@@ -72,7 +68,7 @@ namespace AzureDevopsExportQuickAndDirty
             do
             {
                 fileName = Path.Combine(
-                    outDirectory, 
+                    outDirectory,
                     _options.TeamProject.SanitizeForFileSystem() +
                     (index > 0 ? $" ({index})" : String.Empty)
                     + ".xlsx");
@@ -95,7 +91,7 @@ namespace AzureDevopsExportQuickAndDirty
         {
             Log.Logger = new LoggerConfiguration()
                 .Enrich.WithExceptionDetails()
-                .MinimumLevel.Debug()
+                .MinimumLevel.Information()
                 .WriteTo.Console()
                 .WriteTo.File(
                     "logs\\logs.txt",

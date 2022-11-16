@@ -36,9 +36,7 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             ws.Cells["G1"].Value = "Pipelines";
 
             //TODO: Remove in a specific class.
-            await DumpTfVcInformation(teamProject, ws);
-
-            int row = 3;
+            int row = await DumpTfVcInformation(teamProject, ws, pipelineInfo);
 
             var repositories = await _connection.GitHttpClient.GetRepositoriesAsync(
                 project: teamProject
@@ -106,19 +104,67 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             FillInformationWithClone(ws, row, repo, info);
 
             Log.Information("Get details for repo {repo}", repo.Name);
-            var branches = await _connection.GitHttpClient.GetBranchesAsync(repo.Id);
-
-            ws.Cells[$"E{row}"].Value = info.BranchesCount = branches.Count;
+            var branchesCount = await GetBranchCount(repo);
+            ws.Cells[$"E{row}"].Value = info.BranchesCount = branchesCount;
         }
 
-        private async Task DumpTfVcInformation(string teamProject, OfficeOpenXml.ExcelWorksheet ws)
+        private async Task<int> GetBranchCount(GitRepository repo)
+        {
+            try
+            {
+                var branches = await _connection.GitHttpClient.GetBranchesAsync(repo.Id);
+                return branches.Count;
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Dump information about tfvc repository
+        /// </summary>
+        /// <param name="teamProject"></param>
+        /// <param name="ws"></param>
+        /// <returns>next Row Number to use</returns>
+        private async Task<int> DumpTfVcInformation(
+            string teamProject,
+            OfficeOpenXml.ExcelWorksheet ws,
+            IReadOnlyCollection<PipelineInformations> pipelineInfo)
+        {
+            int row = 2;
+            await DumpWholeTFVCStatistics(teamProject, $"$/{teamProject}", row++, ws, pipelineInfo);
+
+            //grab first level folder statistics
+            var items = await _connection.TfvcHttpClient.GetItemsAsync(
+                project: teamProject,
+                recursionLevel: VersionControlRecursionType.None);
+
+            var folders = items
+                .Where(i => i.IsFolder && i.Path.Count(c => c == '/') > 1)
+                .ToList();
+
+            foreach (var folder in folders)
+            {
+                await DumpWholeTFVCStatistics(teamProject, folder.Path, row++, ws, pipelineInfo);
+            }
+
+            return row;
+        }
+
+        private async Task DumpWholeTFVCStatistics(
+            string teamProject,
+            string path,
+            int row,
+            OfficeOpenXml.ExcelWorksheet ws,
+            IReadOnlyCollection<PipelineInformations> pipelineInfo)
         {
             try
             {
                 List<TfvcChangesetRef> allChangesets = new List<TfvcChangesetRef>(1000);
                 List<TfvcChangesetRef> block;
                 var searchCriteria = new TfvcChangesetSearchCriteria();
-                searchCriteria.ItemPath = $"$/{teamProject}";
+                searchCriteria.ItemPath = path;
                 block = await _connection.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
 
                 while (block.Count > 0)
@@ -131,18 +177,23 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
                     block = await _connection.TfvcHttpClient.GetChangesetsAsync(searchCriteria: searchCriteria);
                 }
 
-                ws.Cells["A2"].Value = "TFVC";
-                ws.Cells["B2"].Value = "TFVC";
-                ws.Cells["C2"].Value = "TFVC";
-                ws.Cells["D2"].Value = allChangesets.Count;
+                ws.Cells[$"A{row}"].Value = "TFVC";
+                ws.Cells[$"B{row}"].Value = "TFVC";
+                ws.Cells[$"C{row}"].Value = path;
+                ws.Cells[$"D{row}"].Value = allChangesets.Count;
 
                 //count branches
                 var branches = await _connection.TfvcHttpClient.GetBranchesAsync(teamProject);
-                ws.Cells["E2"].Value = branches.Count;
+                ws.Cells[$"E{row}"].Value = branches.Count(b => b.Path.StartsWith(path));
 
                 //now count files
-                var items = await _connection.TfvcHttpClient.GetItemsAsync(project: teamProject, recursionLevel: VersionControlRecursionType.Full);
-                ws.Cells["F2"].Value = items.Count(i => !i.IsFolder);
+                var items = await _connection.TfvcHttpClient.GetItemsAsync(
+                    project: teamProject,
+                    scopePath: path,
+                    recursionLevel: VersionControlRecursionType.Full);
+                ws.Cells[$"F{row}"].Value = items.Count(i => !i.IsFolder);
+
+                ws.Cells[$"G{row}"].Value = pipelineInfo.Count(pd => pd.Path.StartsWith(path));
             }
             catch (Exception ex)
             {
@@ -179,7 +230,6 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             }
         }
 
-
         private static string ExecuteGitCommand(string workingFolder, string arguments)
         {
             var pi = new ProcessStartInfo()
@@ -198,6 +248,5 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             process.WaitForExit();
             return output;
         }
-
     }
 }
