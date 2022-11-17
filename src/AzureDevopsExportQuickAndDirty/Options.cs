@@ -29,6 +29,14 @@ namespace AzureDevopsExportQuickAndDirty
             HelpText = "name of folder where excel files will be generated")]
         public String OutFolder { get; set; }
 
+        [Option(
+            "limit",
+            Required = false,
+            HelpText = "Data Limit es. 01-01-2022 GMT")]
+
+        public String Limit { get; set; }
+
+
         internal string GetOuputFolder()
         {
             if (String.IsNullOrEmpty(OutFolder))
