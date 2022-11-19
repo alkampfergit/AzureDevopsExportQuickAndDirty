@@ -20,21 +20,14 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             _connection = connection;
         }
 
+        /// <summary>
+        /// Extract information about work item, paginate because you cannot ask for an arbitrary number of work items.
+        /// </summary>
+        /// <param name="excel"></param>
+        /// <param name="teamProject"></param>
+        /// <returns></returns>
         public async Task<IReadOnlyCollection<WorkItemInformations>> ExtractAllWorkItemsInfo(ExcelPackage excel, string teamProject)
         {
-            List<WorkItemInformations> workItemInformations = new List<WorkItemInformations>();
-            Log.Information("About to query all work items");
-            var query = $@"Select
-               [State],[Title]
-            from 
-                WorkItems 
-            where 
-                [System.TeamProject] = '{teamProject}'";
-
-            var wiql = new Wiql() { Query = query };
-            //execute the query to get the list of work items in teh results
-            WorkItemQueryResult workItemQueryResult = await _connection.WorkItemTrackingHttpClient.QueryByWiqlAsync(wiql);
-
             //now we need to export all data in excel file.
             var ws = excel.Workbook.Worksheets.Single(w => w.Name == "WorkItems");
             ws.Cells["A1"].Value = "Id";
@@ -46,11 +39,53 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             ws.Cells["G1"].Value = "RelatedWorkItems";
             ws.Cells["H1"].Value = "Code";
             ws.Cells["I1"].Value = "PullRequest";
-            Int32 row = 2;
+
+            int row = 2;
+            int lastId = 0;
+
+            List<WorkItemInformations> workItemInformations = new List<WorkItemInformations>();
+            do
+            {
+                (row, lastId) = await GetAPageOfWorkItems(
+                    teamProject,
+                    ws,
+                    row,
+                    workItemInformations,
+                    lastId);
+
+                Log.Information("Import work item: Total up to now {total}", workItemInformations.Count);
+            } while (lastId > 0);
+
+            return workItemInformations;
+        }
+
+        private async Task<(int Row, int LastId)> GetAPageOfWorkItems(
+            string teamProject, 
+            ExcelWorksheet ws, 
+            int row,
+            List<WorkItemInformations> workItemInformations, 
+            int initialId)
+        {
+            Log.Information("About to query all work items");
+            var query = $@"Select
+               [State],[Title]
+            from 
+                WorkItems 
+            where 
+                [System.TeamProject] = '{teamProject}' and Id > {initialId}
+            order by
+                Id ASC
+";
+
+            int lastId = 0;
+            var wiql = new Wiql() { Query = query };
+            //execute the query to get the list of work items in teh results
+            WorkItemQueryResult workItemQueryResult = await _connection.WorkItemTrackingHttpClient.QueryByWiqlAsync(wiql, top: 1000);
 
             //now get the result.             
             if (workItemQueryResult.WorkItems.Any())
             {
+                Log.Information("Loaded a block of {count} WorkItems starting from {start}", workItemQueryResult.WorkItems.Count(), initialId);
                 //need to get the list of our work item id's paginated and get work item in blocks
                 var count = workItemQueryResult.WorkItems.Count();
                 var current = 0;
@@ -63,10 +98,11 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
                     row = DumpPageOfWorkItems(ws, row, workItems, workItemInformations);
 
                     current += pageSize;
+                    lastId = workItems[workItems.Count - 1].Id.Value;
                 }
             }
 
-            return workItemInformations;
+            return (row, lastId);
         }
 
         private async Task<List<WorkItem>> RetrievePageOfWorkItem(ConnectionManager conn, WorkItemQueryResult workItemQueryResult, int current, int pageSize)
@@ -103,7 +139,7 @@ namespace AzureDevopsExportQuickAndDirty.Exporters
             var workItems = await conn.WorkItemTrackingHttpClient.GetWorkItemsAsync(
                 list,
                 expand: WorkItemExpand.Relations);
-            Log.Information("Query Results: record from {from} to {to} retrieved", current, current + pageSize);
+            Log.Information("Work item DETAILS result: record from {from} to {to} retrieved", current, current + pageSize);
             return workItems;
         }
 
