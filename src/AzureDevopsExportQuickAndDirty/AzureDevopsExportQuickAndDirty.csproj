@@ -40,11 +40,11 @@
     <PackageReference Include="Microsoft.AspNet.WebApi.Core" Version="5.2.9" />
     <PackageReference Include="Microsoft.AspNet.WebApi.WebHost" Version="5.2.9" />
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="6.0.0" />
-    <PackageReference Include="Microsoft.IdentityModel.Abstractions" Version="6.25.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Abstractions" Version="6.34.0" />
     <PackageReference Include="Microsoft.IdentityModel.Clients.ActiveDirectory" Version="5.2.9" />
-    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="6.25.0" />
-    <PackageReference Include="Microsoft.IdentityModel.Logging" Version="6.25.0" />
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="6.25.0" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="6.34.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Logging" Version="6.34.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="6.34.0" />
     <PackageReference Include="Microsoft.NETCore.Platforms" Version="6.0.6" />
     <PackageReference Include="Microsoft.NETCore.Targets" Version="5.0.0" />
     <PackageReference Include="Microsoft.TeamFoundation.DistributedTask.Common.Contracts" Version="16.170.0" />
